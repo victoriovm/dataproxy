@@ -30,6 +30,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # v3 defaults to 'tools platform-tools', and the legacy 'tools'
+          # package no longer exists in the SDK repository, which makes the
+          # action die before our own steps run.
+          packages: 'platform-tools'
+          accept-android-sdk-licenses: true
 
       - name: Install SDK platform 36
         run: |
