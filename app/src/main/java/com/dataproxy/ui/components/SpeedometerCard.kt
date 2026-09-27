@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,6 +58,7 @@ fun SpeedometerCard(
     SectionCard(
         title = "Proxy speed",
         modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -103,7 +105,7 @@ private fun SpeedTile(
     )
     val outlineSoftColor = OutlineSoft
     Column(
-        modifier = modifier.padding(vertical = 6.dp),
+        modifier = modifier.padding(vertical = 2.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -148,7 +150,7 @@ private fun SpeedTile(
                 style = MaterialTheme.typography.displayMedium.copy(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Light,
-                    fontSize = 28.sp,
+                    fontSize = 24.sp,
                     letterSpacing = (-0.5).sp,
                 ),
             )
@@ -160,7 +162,7 @@ private fun SpeedTile(
                 modifier = Modifier.padding(bottom = 6.dp),
             )
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Box(modifier = Modifier.fillMaxWidth().height(4.dp)) {
             Canvas(modifier = Modifier.fillMaxWidth().height(4.dp)) {
                 val baseY = size.height / 2

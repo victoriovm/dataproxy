@@ -126,13 +126,14 @@ fun ListenAddressScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+            Spacer(Modifier.height(2.dp))
+            PortField(
+                label = "Port",
+                port = port,
+                enabled = canEdit,
+                onChange = viewModel::selectPort,
+            )
         }
-        Spacer(Modifier.height(10.dp))
-        PortField(
-            port = port,
-            enabled = canEdit,
-            onChange = viewModel::selectPort,
-        )
     }
 }
 
@@ -250,7 +251,8 @@ private fun AddressRow(
 }
 
 @Composable
-private fun PortField(
+internal fun PortField(
+    label: String,
     port: Int,
     enabled: Boolean,
     onChange: (Int) -> Unit,
@@ -264,7 +266,7 @@ private fun PortField(
             text = v.filter { it.isDigit() }.take(5)
             text.toIntOrNull()?.takeIf { it in 1..65535 }?.let(onChange)
         },
-        label = { Text("Port") },
+        label = { Text(label) },
         singleLine = true,
         enabled = enabled,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -287,3 +289,4 @@ private fun PortField(
         modifier = Modifier.fillMaxWidth(),
     )
 }
+

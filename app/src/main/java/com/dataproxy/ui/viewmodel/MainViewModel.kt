@@ -14,6 +14,7 @@ import com.dataproxy.network.CellularNetworkProvider
 import com.dataproxy.network.CellularTechMonitor
 import com.dataproxy.network.NetworkInterfaceLister
 import com.dataproxy.proxy.ConnectionRegistry
+import com.dataproxy.proxy.RenewWebServer
 import com.dataproxy.proxy.SpeedSampler
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.theme.ThemeMode
@@ -38,6 +39,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _port = MutableStateFlow(prefs.getInt(ProxyService.PREF_PORT, ProxyService.DEFAULT_PORT))
     val port: StateFlow<Int> = _port.asStateFlow()
+
+    private val _webEnabled = MutableStateFlow(prefs.getBoolean(ProxyService.PREF_WEB_ENABLED, false))
+    val webEnabled: StateFlow<Boolean> = _webEnabled.asStateFlow()
+
+    private val _webPort = MutableStateFlow(
+        prefs.getInt(ProxyService.PREF_WEB_PORT, RenewWebServer.DEFAULT_WEB_PORT)
+    )
+    val webPort: StateFlow<Int> = _webPort.asStateFlow()
+
+    private val _webState = MutableStateFlow<ProxyService.WebState>(ProxyService.WebState.Stopped)
+    val webState: StateFlow<ProxyService.WebState> = _webState.asStateFlow()
 
     private val _interfaces = MutableStateFlow<List<NetworkInterfaceLister.Candidate>>(emptyList())
     val interfaces: StateFlow<List<NetworkInterfaceLister.Candidate>> = _interfaces.asStateFlow()
@@ -109,6 +121,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         collectors.forEach { it.cancel() }
         collectors.clear()
         collectors += service.state.onEach { _serviceState.value = it }.launchIn(viewModelScope)
+        collectors += service.webState.onEach { _webState.value = it }.launchIn(viewModelScope)
         collectors += service.devices.onEach { _devices.value = it }.launchIn(viewModelScope)
         collectors += service.totals.onEach { _totals.value = it }.launchIn(viewModelScope)
         collectors += service.rates.onEach { _rates.value = it }.launchIn(viewModelScope)
@@ -144,6 +157,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun selectPort(p: Int) {
         _port.value = p
         prefs.edit().putInt(ProxyService.PREF_PORT, p).apply()
+    }
+
+    fun setWebEnabled(enabled: Boolean) {
+        _webEnabled.value = enabled
+        prefs.edit().putBoolean(ProxyService.PREF_WEB_ENABLED, enabled).apply()
+    }
+
+    fun selectWebPort(p: Int) {
+        _webPort.value = p
+        prefs.edit().putInt(ProxyService.PREF_WEB_PORT, p).apply()
     }
 
     fun setAuthEnabled(enabled: Boolean) {
@@ -185,7 +208,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun start() {
         runCatching {
             val ctx = getApplication<Application>()
-            val intent = ProxyService.startIntent(ctx, _bindAddress.value, _port.value)
+            val intent = ProxyService.startIntent(
+                ctx, _bindAddress.value, _port.value, _webEnabled.value, _webPort.value,
+            )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 ctx.startForegroundService(intent)
             } else {

@@ -139,8 +139,6 @@ class MainActivity : ComponentActivity() {
                             showPermsDialog = true
                         }
                     },
-                    themeMode = themeMode,
-                    onCycleTheme = { viewModel.cycleThemeMode() },
                     showPermsDialog = showPermsDialog,
                     notifApplicable = notifApplicable,
                     notifGranted = notifGranted,

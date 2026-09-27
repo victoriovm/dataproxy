@@ -461,3 +461,44 @@ is a settings-guidance hub plus a boot-restore toggle, not another process.
 
 GitHub: <https://github.com/Sir-MmD/dataproxy> (default branch `main`,
 public, MIT). Latest release lives at the `/releases/latest` URL.
+
+## Renew web server
+
+- **`RenewWebServer`** (`proxy/`) is a hand-rolled HTTP server on
+  `ServerSocket`, no OkHttp/Ktor dependency. One route: `GET /renew`
+  returns 200 after the airplane cycle, anything else 404.
+- **`AirplaneModeController`** (`network/`) toggles airplane mode through
+  **Shizuku only**. Verified on the user's Samsung A55 and A11 (J4+):
+  writing `Settings.Global.AIRPLANE_MODE_ON` changes the flag but the modem
+  stays `IN_SERVICE`, and `ACTION_AIRPLANE_MODE_CHANGED` is a protected
+  broadcast. `adb shell cmd connectivity airplane-mode` works (two subs to
+  `POWER_OFF` in 3 s), so the app runs exactly that through Shizuku with
+  shell privilege. Voice-assistant and raw-setting paths were tried and
+  removed, do not reintroduce them. `/renew` answers 500 with "authorize
+  Shizuku first" until Shizuku is Ready. No fixed sleeps: airplane ON,
+  wait on `TelephonyCallback` (`POWER_OFF`/`OUT_OF_SERVICE` on ANY
+  subscription, `DATA_DISCONNECTED` backup, poll fallback) for 12.5 s, one
+  re-kick (OFF, settle 2 s, ON) if unconfirmed, then airplane OFF and a
+  30 s wait for a validated cellular network. Callbacks register on a
+  direct executor (the renew path has no Looper) and always unregister via
+  `invokeOnCancellation`.
+- **Lifecycle lives inside `ProxyService`.** The web server shares the
+  SOCKS bind address (the Listen picker) on its own port (`web_port`,
+  default 8080), starts after the SOCKS bind succeeds, and a web bind
+  failure fails the whole start. `fullCleanup()` stops it on both start
+  and stop, and `WebState` (Stopped/Running) mirrors to the UI like the
+  other flows. `BootReceiver` forwards the persisted web toggle + port, and
+  `/renew` cycles are serialized with a mutex so concurrent GETs queue.
+- **UI is a Home card plus a dedicated Renew screen** (`Tab.Renew`): the
+  Home card shows live status with a toggle (locked while the proxy runs),
+  the Renew screen owns the toggle, the web port field, and the Shizuku
+  status line (Ready/Unauthorized/Unavailable, polled every 1.5 s;
+  Unauthorized also shows an "Authorize via Shizuku" button). The power
+  button runs proxy plus renew together when the switch is on.
+- **Shizuku wiring that matters:** `dev.rikka.shizuku:api` (v13.1.5) is
+  called only through reflection (`rikka.shizuku.Shizuku`, note `rikka`,
+  not `moe`; `newProcess` is private, so `isAccessible = true`), the
+  `ShizukuProvider` must be declared in the manifest with
+  `authorities="${applicationId}.shizuku"` or the binder never arrives,
+  and the manager package for install detection is
+  `moe.shizuku.privileged.api`.

@@ -14,9 +14,11 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.dataproxy.MainActivity
 import com.dataproxy.R
+import com.dataproxy.network.AirplaneModeController
 import com.dataproxy.network.CellularNetworkProvider
 import com.dataproxy.proxy.AuthConfig
 import com.dataproxy.proxy.ConnectionRegistry
+import com.dataproxy.proxy.RenewWebServer
 import com.dataproxy.proxy.Socks5Server
 import com.dataproxy.proxy.SpeedSampler
 import com.dataproxy.util.ByteFormatter
@@ -64,10 +66,12 @@ class ProxyService : Service() {
     private val cycleId = java.util.concurrent.atomic.AtomicLong(0L)
 
     private val cellular by lazy { CellularNetworkProvider(applicationContext) }
+    private val airplane by lazy { AirplaneModeController(applicationContext) }
     private val registry = ConnectionRegistry()
     private val sampler = SpeedSampler()
 
     private var server: Socks5Server? = null
+    private var webServer: RenewWebServer? = null
     private var startJob: Job? = null
     private var publishJob: Job? = null
     private var cellularWatchJob: Job? = null
@@ -75,6 +79,8 @@ class ProxyService : Service() {
 
     private val _state = MutableStateFlow<State>(State.Stopped)
     val state: StateFlow<State> = _state.asStateFlow()
+    private val _webState = MutableStateFlow<WebState>(WebState.Stopped)
+    val webState: StateFlow<WebState> = _webState.asStateFlow()
     val devices: StateFlow<List<ConnectionRegistry.DeviceSummary>> = registry.devices
     val totals: StateFlow<ConnectionRegistry.Totals> = registry.totals
     val rates: StateFlow<SpeedSampler.Rates> = sampler.rates
@@ -90,6 +96,11 @@ class ProxyService : Service() {
         data class Error(val message: String, val kind: ErrorKind = ErrorKind.Generic) : State
 
         enum class ErrorKind { Generic, MobileDataUnavailable, BindFailed }
+    }
+
+    sealed interface WebState {
+        data object Stopped : WebState
+        data class Running(val port: Int) : WebState
     }
 
     inner class LocalBinder : Binder() {
@@ -110,7 +121,15 @@ class ProxyService : Service() {
             ACTION_START -> {
                 val addr = intent.getStringExtra(EXTRA_BIND_ADDRESS) ?: "0.0.0.0"
                 val port = intent.getIntExtra(EXTRA_PORT, DEFAULT_PORT)
-                startProxy(addr, port)
+                val webEnabled = intent.getBooleanExtra(
+                    EXTRA_WEB_ENABLED,
+                    prefs().getBoolean(PREF_WEB_ENABLED, false),
+                )
+                val webPort = intent.getIntExtra(
+                    EXTRA_WEB_PORT,
+                    prefs().getInt(PREF_WEB_PORT, RenewWebServer.DEFAULT_WEB_PORT),
+                )
+                startProxy(addr, port, webEnabled, webPort)
             }
             ACTION_STOP -> {
                 stopProxy()
@@ -128,7 +147,7 @@ class ProxyService : Service() {
 
     // ----------------------------------------------------------------- control
 
-    fun startProxy(bindAddress: String, port: Int) {
+    fun startProxy(bindAddress: String, port: Int, webEnabled: Boolean = false, webPort: Int = RenewWebServer.DEFAULT_WEB_PORT) {
         if (_state.value is State.Running || _state.value is State.Starting) return
 
         // Clear-state + kill: wipe everything from any previous cycle before
@@ -199,6 +218,48 @@ class ProxyService : Service() {
                 return@launch
             }
             if (srv.running) {
+                // Optional renew web server shares the SOCKS bind address on
+                // its own port. A web bind failure fails the whole start so
+                // the UI never shows a half-up proxy with a dead /renew.
+                if (webEnabled) {
+                    val web = RenewWebServer(
+                        bindAddress = bindAddress,
+                        port = webPort,
+                        airplane = airplane,
+                    )
+                    webServer = web
+                    try {
+                        web.start()
+                    } catch (e: Exception) {
+                        if (cycleId.get() != myCycle) {
+                            runCatching { web.stop() }
+                            return@launch
+                        }
+                        _state.value = State.Error(
+                            message = "Web server failed on $bindAddress:$webPort (${e.message})",
+                            kind = State.ErrorKind.BindFailed,
+                        )
+                        fullCleanup()
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        return@launch
+                    }
+                    if (cycleId.get() != myCycle) {
+                        web.stop()
+                        return@launch
+                    }
+                    if (!web.running) {
+                        _state.value = State.Error(
+                            message = "Web server failed on $bindAddress:$webPort",
+                            kind = State.ErrorKind.BindFailed,
+                        )
+                        fullCleanup()
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        return@launch
+                    }
+                    _webState.value = WebState.Running(webPort)
+                } else {
+                    _webState.value = WebState.Stopped
+                }
                 _state.value = State.Running(bindAddress, port)
                 acquireWakeLock()
                 startSampling()
@@ -225,6 +286,8 @@ class ProxyService : Service() {
         publishJob?.cancel(); publishJob = null
         cellularWatchJob?.cancel(); cellularWatchJob = null
         server?.stop(); server = null
+        webServer?.stop(); webServer = null
+        _webState.value = WebState.Stopped
         cellular.stop()
         registry.reset()
         sampler.reset()
@@ -404,6 +467,8 @@ class ProxyService : Service() {
         const val ACTION_STOP = "com.dataproxy.ACTION_STOP"
         const val EXTRA_BIND_ADDRESS = "extra.bindAddress"
         const val EXTRA_PORT = "extra.port"
+        const val EXTRA_WEB_ENABLED = "extra.webEnabled"
+        const val EXTRA_WEB_PORT = "extra.webPort"
         const val DEFAULT_PORT = 1080
 
         private const val CHANNEL_ID = "dataproxy.status"
@@ -418,18 +483,32 @@ class ProxyService : Service() {
         // BootReceiver so an auto-start uses the same endpoint as the UI.
         const val PREF_BIND_ADDRESS = "bind_address"
         const val PREF_PORT = "port"
+        // Renew web server toggle + port. Same bind address as the SOCKS
+        // listener, own port, persisted like the listen settings above.
+        const val PREF_WEB_ENABLED = "web_enabled"
+        const val PREF_WEB_PORT = "web_port"
         // Written by MainViewModel; read here fresh on every notification
         // rebuild so a toggle made while the proxy is running takes effect
         // on the next update without a restart.
         const val PREF_RATE_UNIT = "rate_unit"
 
-        fun startIntent(ctx: Context, addr: String, port: Int) =
+        fun startIntent(
+            ctx: Context,
+            addr: String,
+            port: Int,
+            webEnabled: Boolean = false,
+            webPort: Int = RenewWebServer.DEFAULT_WEB_PORT,
+        ) =
             Intent(ctx, ProxyService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_BIND_ADDRESS, addr)
                 .putExtra(EXTRA_PORT, port)
+                .putExtra(EXTRA_WEB_ENABLED, webEnabled)
+                .putExtra(EXTRA_WEB_PORT, webPort)
 
         fun stopIntent(ctx: Context) =
             Intent(ctx, ProxyService::class.java).setAction(ACTION_STOP)
     }
+
+    private fun prefs() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 }

@@ -31,13 +31,15 @@ class BootReceiver : BroadcastReceiver() {
         val prefs = context.getSharedPreferences(ProxyService.PREFS_NAME, Context.MODE_PRIVATE)
         val addr = prefs.getString(ProxyService.PREF_BIND_ADDRESS, "0.0.0.0") ?: "0.0.0.0"
         val port = prefs.getInt(ProxyService.PREF_PORT, ProxyService.DEFAULT_PORT)
+        val webEnabled = prefs.getBoolean(ProxyService.PREF_WEB_ENABLED, false)
+        val webPort = prefs.getInt(ProxyService.PREF_WEB_PORT, com.dataproxy.proxy.RenewWebServer.DEFAULT_WEB_PORT)
 
         // startForegroundService is required (we're a background context here);
         // the service calls startForeground() synchronously in startProxy.
         runCatching {
             ContextCompat.startForegroundService(
                 context,
-                ProxyService.startIntent(context, addr, port),
+                ProxyService.startIntent(context, addr, port, webEnabled, webPort),
             )
         }
     }

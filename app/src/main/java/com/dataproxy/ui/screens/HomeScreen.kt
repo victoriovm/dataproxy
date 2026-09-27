@@ -18,16 +18,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Devices
-import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Router
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,7 +38,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,11 +52,11 @@ import com.dataproxy.ui.components.TrafficStatsCard
 import com.dataproxy.ui.theme.Accent
 import com.dataproxy.ui.theme.Danger
 import com.dataproxy.ui.theme.OutlineSoft
+import com.dataproxy.ui.theme.OutlineStrong
 import com.dataproxy.ui.theme.SurfaceLow
 import com.dataproxy.ui.theme.TextMuted
 import com.dataproxy.ui.theme.TextPrimary
 import com.dataproxy.ui.theme.TextSecondary
-import com.dataproxy.ui.theme.ThemeMode
 import com.dataproxy.ui.theme.Warning
 import com.dataproxy.ui.viewmodel.MainViewModel
 
@@ -69,8 +68,7 @@ fun HomeScreen(
     onOpenDevices: () -> Unit,
     onOpenAuth: () -> Unit,
     onOpenAntiKill: () -> Unit,
-    themeMode: ThemeMode,
-    onCycleTheme: () -> Unit,
+    onOpenRenew: () -> Unit,
     onHeaderClick: () -> Unit,
 ) {
     val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
@@ -84,6 +82,9 @@ fun HomeScreen(
     val authEnabled by viewModel.authEnabled.collectAsStateWithLifecycle()
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val activeDeviceCount = devices.count { it.activeConnections > 0 }
+    val webEnabled by viewModel.webEnabled.collectAsStateWithLifecycle()
+    val webPort by viewModel.webPort.collectAsStateWithLifecycle()
+    val webState by viewModel.webState.collectAsStateWithLifecycle()
 
     val powerState = when (serviceState) {
         is ProxyService.State.Running -> PowerState.On
@@ -109,12 +110,10 @@ fun HomeScreen(
         Header(
             cellular = cellular,
             tech = cellularTech,
-            themeMode = themeMode,
-            onCycleTheme = onCycleTheme,
             onNetworkClick = onHeaderClick,
             onOpenAntiKill = onOpenAntiKill,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
@@ -125,20 +124,20 @@ fun HomeScreen(
                 onClick = onToggle,
             )
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
         SpeedometerCard(
             upBps = rates.upBps,
             downBps = rates.downBps,
             rateUnit = rateUnit,
             onCycleRateUnit = { viewModel.cycleRateUnit() },
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         TrafficStatsCard(
             bytesUp = totals.bytesUp,
             bytesDown = totals.bytesDown,
             activeConnections = totals.active,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -170,6 +169,18 @@ fun HomeScreen(
                 modifier = Modifier.weight(1f),
             )
         }
+        Spacer(Modifier.height(10.dp))
+        RenewCard(
+            webEnabled = webEnabled,
+            webPort = webPort,
+            webState = webState,
+            canEdit = when (serviceState) {
+                is ProxyService.State.Stopped, is ProxyService.State.Error -> true
+                else -> false
+            },
+            onToggle = viewModel::setWebEnabled,
+            onOpenRenew = onOpenRenew,
+        )
         Spacer(Modifier.weight(1f))
         Footer()
     }
@@ -179,8 +190,6 @@ fun HomeScreen(
 private fun Header(
     cellular: CellularNetworkProvider.State,
     tech: CellularTechMonitor.TechState,
-    themeMode: ThemeMode,
-    onCycleTheme: () -> Unit,
     onNetworkClick: () -> Unit,
     onOpenAntiKill: () -> Unit,
 ) {
@@ -189,25 +198,24 @@ private fun Header(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(listOf(Accent, Color(0xFF1E9C70)))
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Bolt,
-                    contentDescription = null,
-                    tint = Color.Black,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            ThemeToggleButton(themeMode = themeMode, onClick = onCycleTheme)
+        // Bolt badge shares the title block's vertical center: with the theme
+        // button gone there is no second row to balance against, so align the
+        // icon with the two-line title instead of floating it above.
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(listOf(Accent, Color(0xFF1E9C70)))
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Bolt,
+                contentDescription = null,
+                tint = Color.Black,
+                modifier = Modifier.size(22.dp),
+            )
         }
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -308,32 +316,67 @@ private fun AntiKillChip(onClick: () -> Unit) {
 }
 
 @Composable
-private fun ThemeToggleButton(themeMode: ThemeMode, onClick: () -> Unit) {
-    val icon = when (themeMode) {
-        ThemeMode.System -> Icons.Rounded.BrightnessAuto
-        ThemeMode.Light -> Icons.Rounded.LightMode
-        ThemeMode.Dark -> Icons.Rounded.DarkMode
-    }
-    val description = when (themeMode) {
-        ThemeMode.System -> "Theme: follow system"
-        ThemeMode.Light -> "Theme: light"
-        ThemeMode.Dark -> "Theme: dark"
-    }
-    Box(
+private fun RenewCard(
+    webEnabled: Boolean,
+    webPort: Int,
+    webState: ProxyService.WebState,
+    canEdit: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onOpenRenew: () -> Unit,
+) {
+    // Same tile look as the Listen/Devices/Auth row, full width. The switch
+    // arms the server for the next proxy start (the power button runs proxy
+    // plus renew together when the switch is on), and it locks while the
+    // proxy is live so the toggle can never desync from a running server.
+    Column(
         modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
             .background(SurfaceLow)
-            .border(1.dp, OutlineSoft, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .border(1.dp, OutlineSoft, RoundedCornerShape(16.dp))
+            .clickable(onClick = onOpenRenew)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = description,
-            tint = TextSecondary,
-            modifier = Modifier.size(20.dp),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Rounded.Refresh,
+                contentDescription = null,
+                tint = Accent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Renew server",
+                    color = TextPrimary,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = when (val ws = webState) {
+                        is ProxyService.WebState.Running -> "GET /renew on :${ws.port}"
+                        else -> if (webEnabled) "On, starts with proxy :$webPort"
+                        else "Rotate carrier IP via GET /renew"
+                    },
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                )
+            }
+            Switch(
+                checked = webEnabled,
+                // The switch consumes the tap itself so the row click does
+                // not also fire. Disabled while live, same rule as Listen.
+                onCheckedChange = { if (canEdit) onToggle(it) },
+                enabled = canEdit,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SurfaceLow,
+                    checkedTrackColor = Accent,
+                    uncheckedThumbColor = TextSecondary,
+                    uncheckedTrackColor = SurfaceLow,
+                    uncheckedBorderColor = OutlineStrong,
+                ),
+            )
+        }
     }
 }
 

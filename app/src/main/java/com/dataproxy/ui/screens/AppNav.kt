@@ -40,12 +40,11 @@ import com.dataproxy.ui.theme.SurfaceLow
 import com.dataproxy.ui.theme.TextMuted
 import com.dataproxy.ui.theme.TextPrimary
 import com.dataproxy.ui.theme.TextSecondary
-import com.dataproxy.ui.theme.ThemeMode
 import com.dataproxy.ui.theme.Warning
 import com.dataproxy.ui.viewmodel.MainViewModel
 import com.dataproxy.util.AntiKillStep
 
-enum class Tab { Home, ListenAddress, Devices, Auth, AntiKill }
+enum class Tab { Home, ListenAddress, Devices, Auth, AntiKill, Renew }
 
 @Composable
 fun AppNav(
@@ -54,8 +53,6 @@ fun AppNav(
     onTabChange: (Tab) -> Unit,
     onToggle: () -> Unit,
     onHeaderClick: () -> Unit,
-    themeMode: ThemeMode,
-    onCycleTheme: () -> Unit,
     showPermsDialog: Boolean,
     notifApplicable: Boolean,
     notifGranted: Boolean,
@@ -94,8 +91,7 @@ fun AppNav(
                     onOpenDevices = { onTabChange(Tab.Devices) },
                     onOpenAuth = { onTabChange(Tab.Auth) },
                     onOpenAntiKill = { onTabChange(Tab.AntiKill) },
-                    themeMode = themeMode,
-                    onCycleTheme = onCycleTheme,
+                    onOpenRenew = { onTabChange(Tab.Renew) },
                     onHeaderClick = onHeaderClick,
                 )
                 Tab.ListenAddress -> ListenAddressScreen(
@@ -111,6 +107,10 @@ fun AppNav(
                     onBack = { onTabChange(Tab.Home) },
                 )
                 Tab.AntiKill -> AntiKillScreen(
+                    viewModel = viewModel,
+                    onBack = { onTabChange(Tab.Home) },
+                )
+                Tab.Renew -> RenewScreen(
                     viewModel = viewModel,
                     onBack = { onTabChange(Tab.Home) },
                 )

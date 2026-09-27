@@ -1,0 +1,92 @@
+name: Nightly
+
+# Rolling build: one release, always the same URL, replaced on every push.
+# Not a pre-release, it is the repo's normal "Latest" release.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Serialize runs so two pushes cannot race on the same tag/asset.
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK platform 36
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      # The repo has no gradle wrapper jar, so Gradle comes from the action.
+      # (Add the wrapper later and this becomes ./gradlew.)
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            mkdir -p app/keystore
+            echo "$KEYSTORE_BASE64" | base64 -d > app/keystore/dataproxy-release.jks
+            echo "Keystore decoded."
+          else
+            echo "::error::KEYSTORE_BASE64 secret is not set, the APK would be unsigned and uninstallable. See README."
+            exit 1
+          fi
+
+      - name: Build release APK
+        env:
+          # Defaults match app/build.gradle.kts, override with secrets if the
+          # keystore uses other values.
+          DATAPROXY_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'dataproxy' }}
+          DATAPROXY_KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'dataproxy' }}
+          DATAPROXY_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'dataproxy' }}
+        run: |
+          # gradle.properties pins the local Android Studio JBR, absent on the runner.
+          sed -i '/org.gradle.java.home/d' gradle.properties
+          gradle :app:assembleRelease --no-daemon --console=plain
+
+      - name: Stage APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk DataProxy-nightly.apk
+          ls -lh DataProxy-nightly.apk
+
+      # Single rolling release: same tag, same URL, asset replaced in place.
+      - name: Publish Nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git tag -f nightly
+          git push -f origin refs/tags/nightly
+
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release upload nightly DataProxy-nightly.apk --clobber
+            gh release edit nightly --title "Nightly" --latest
+          else
+            gh release create nightly DataProxy-nightly.apk \
+              --title "Nightly" \
+              --latest \
+              --notes "Rolling build of the latest commit on main, replaced on every push. Not a versioned release."
+          fi

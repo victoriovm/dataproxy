@@ -57,6 +57,46 @@ Requires Android 8.0 or newer.
 
 Then point your client at the phone's IP on that port.
 
+### Renew web server (rotate the carrier IP)
+
+The **Renew** screen (opened from the Home card) has the renew server
+toggle. It shares the SOCKS bind address on its own port (default `8080`)
+and serves one route:
+
+```
+GET /renew -> airplane mode ON, radio confirmed off, airplane OFF,
+mobile data back, answer 200
+```
+
+There is no fixed sleep: the app watches the modem via `TelephonyCallback`
+and drops airplane mode the moment the radio reports off (up to 25 s,
+including one re-kick), then waits for mobile data to reconnect (30 s
+timeout) before answering.
+
+A script on the LAN rotates the egress IP with one curl:
+
+```bash
+curl http://<phone-ip>:8080/renew
+```
+
+### Shizuku (required for the renew)
+
+A plain app cannot toggle airplane mode: on modern Android a raw
+`Settings.Global` write changes the flag but never touches the radio
+(verified on a Samsung A55: setting reads 1, modem stays `IN_SERVICE`).
+The renew therefore drives the toggle through Shizuku, which runs
+`cmd connectivity airplane-mode` with shell privilege, the same path the
+quick-settings tile uses.
+
+Set it up once:
+
+1. Install [Shizuku](https://github.com/RikkaApps/Shizuku) on the phone.
+2. Start it via wireless debugging (Developer options, no PC needed).
+3. Open the **Renew** screen in DataProxy and tap **Authorize via Shizuku**.
+
+The Renew screen shows the live Shizuku status; `/renew` answers 500 until
+it is authorized.
+
 Use remote DNS so hostnames resolve over cellular rather than on the client:
 
 | Client | Setting |
@@ -105,6 +145,9 @@ by IP, that lookup never reaches the phone. Enable remote DNS on the client.
 | `WAKE_LOCK` | Hold the CPU awake while proxying |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Prompt to exempt the app from Doze |
 
+The renew also declares Shizuku's `API_V23` permission; it is granted at
+install and only matters once you authorize the app inside Shizuku.
+
 Nothing is collected or sent anywhere. Traffic counters and the device list are
 in-memory only and reset when the proxy stops.
 
@@ -116,6 +159,28 @@ in-memory only and reset when the proxy stops.
 
 Needs JDK 17 and Android SDK 36. Signing is optional: without a keystore at
 `app/keystore/dataproxy-release.jks` the build produces an unsigned APK.
+
+## Nightly builds
+
+`.github/workflows/release.yml` builds a signed APK on every push to `main`
+and publishes it to a single rolling release named **Nightly**
+(`/releases/tag/nightly`). The release is replaced in place, never
+duplicated, and it is a normal release, not a pre-release.
+
+The workflow needs the signing key as repository secrets. From a machine
+that has the keystore:
+
+```bash
+base64 -w0 dataproxy-release.jks | gh secret set KEYSTORE_BASE64
+gh secret set KEYSTORE_PASSWORD --body dataproxy
+gh secret set KEY_ALIAS --body dataproxy
+gh secret set KEY_PASSWORD --body dataproxy
+```
+
+`KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` are optional when they
+match the defaults baked into `app/build.gradle.kts` (`dataproxy`); without
+`KEYSTORE_BASE64` the workflow fails on purpose rather than publishing an
+unsigned, uninstallable APK.
 
 ## License
 
