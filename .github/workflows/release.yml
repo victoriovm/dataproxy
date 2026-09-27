@@ -42,12 +42,11 @@ jobs:
           yes | sdkmanager --licenses > /dev/null
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
-      # The repo has no gradle wrapper jar, so Gradle comes from the action.
-      # (Add the wrapper later and this becomes ./gradlew.)
+      # Wrapper-only: the repo ships gradlew + wrapper jar, so the action
+      # just enables caching. Provisioning a gradle-version here fails,
+      # that path does not exist when a wrapper is present.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
 
       - name: Decode signing keystore
         env:
@@ -72,7 +71,7 @@ jobs:
         run: |
           # gradle.properties pins the local Android Studio JBR, absent on the runner.
           sed -i '/org.gradle.java.home/d' gradle.properties
-          gradle :app:assembleRelease --no-daemon --console=plain
+          ./gradlew :app:assembleRelease --no-daemon --console=plain
 
       - name: Stage APK
         run: |
