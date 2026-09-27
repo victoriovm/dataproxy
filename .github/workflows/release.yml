@@ -71,6 +71,8 @@ jobs:
         run: |
           # gradle.properties pins the local Android Studio JBR, absent on the runner.
           sed -i '/org.gradle.java.home/d' gradle.properties
+          # Defensive: the executable bit does not survive a Windows checkout.
+          chmod +x gradlew
           ./gradlew :app:assembleRelease --no-daemon --console=plain
 
       - name: Stage APK
